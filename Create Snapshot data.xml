@@ -13,7 +13,7 @@
 				xmlns:xog="http://www.niku.com/xog"
 				xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
-			<!-- DB access -->
+			<!-- DB access dsads -->
 			<gel:setDataSource dbId="Niku"/>
 
 			<gel:parameter var="debug"/>
@@ -227,7 +227,7 @@
 				<![CDATA[
 							select z_table, z_short_name
 								from Odf_Ca_Z_Snapshot_Tables
-							 where Odf_Parent_Id = ${myObjectId} 
+							 where Odf_Parent_Id = ${myObjectId}
 					]]>
 			</sql:query>
 
@@ -245,12 +245,12 @@
 						<core:set value="${row[1]}" var="z_table_name_code"/>
 
 						<sql:query escapeText="false" var="get_col_names_in_table">
-							select  
+							select
 							 Column_Name
-							from all_tab_Columns 
-							where table_Name = '${z_table_name}' 
-							  and lower(Column_Name) Not In ( 'code' , 'name', 'page_layout', 'partition_code' , 'odf_parent_id' , 'odf_cncrt_parent_id', 'odf_object_code' ) 
-							  and data_type not in ( 'BLOB' )							
+							from all_tab_Columns
+							where table_Name = '${z_table_name}'
+							  and lower(Column_Name) Not In ( 'code' , 'name', 'page_layout', 'partition_code' , 'odf_parent_id' , 'odf_cncrt_parent_id', 'odf_object_code' )
+							  and data_type not in ( 'BLOB' )
 						</sql:query>
 
 						<!-- Local vars for data load -->
@@ -272,13 +272,13 @@
 
 							<core:set value="${count+1}" var="count"/>
 
-						</core:forEach>	
+						</core:forEach>
 
 						<sql:query escapeText="false" var="get_table_key_name">
-								Select  
+								Select
 								Column_Name
-							From All_Tab_Columns 
-							Where Upper(Table_Name) = Upper('${z_table_name}') 
+							From All_Tab_Columns
+							Where Upper(Table_Name) = Upper('${z_table_name}')
 							and ( Lower(Column_Name) Like ( 'prid' ) or Lower(Column_Name) = ('id'))
               				and data_type not in ( 'BLOB' )	order by column_id
 						</sql:query>
@@ -297,12 +297,12 @@
 						<sql:query escapeText="false" var="get_col_data_in_orgi_table">
 								select  ${z_keyrow_name},
 	  							${sql}
-								from ${z_table_name} 
+								from ${z_table_name}
 						</sql:query>
 
-						<!--For each data row in original table that's being snapshotted, we need to create a xml 
-						    snip to add to the xml that's to be XOG for the record 
-							
+						<!--For each data row in original table that's being snapshotted, we need to create a xml
+						    snip to add to the xml that's to be XOG for the record
+
 							We will use the hash-map created and filled earlier to get data to the correct row
 							-->
 						<core:forEach trim="true" items="${get_col_data_in_orgi_table.rowsByIndex}" var="row">
@@ -310,7 +310,7 @@
 							<!-- Xml for data row (XOG) -->
 							<gel:parse var="data_insert_xml">
 								<NikuDataBus xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../xsd/nikuxog_customObjectInstance.xsd">
-									<Header action="write" externalSource="NIKU" objectType="customObjectInstance" version="13.3.0.286"/>									
+									<Header action="write" externalSource="NIKU" objectType="customObjectInstance" version="13.3.0.286"/>
 									<customObjectInstances objectCode="z_${z_table_name_code}">
 										<instance instanceCode="${row[0]}" objectCode="z_${z_table_name_code}" parentInstanceCode="${z_master_record_id}" parentObjectCode="z_kmd_rep_snap">
 											<CustomInformation>
@@ -318,7 +318,7 @@
 											  <ColumnValue name="name">${row[0]}</ColumnValue>
 											</CustomInformation>
 										</instance>
-									</customObjectInstances>  
+									</customObjectInstances>
 								</NikuDataBus>
 							</gel:parse>
 
@@ -331,7 +331,7 @@
 								<!-- The two selects do not return the same number of coulmn, so the array of the sql needs to start +1, due to z_keyrow_name added to the query-->
 								<core:set value="${num+1}" var="local_sql_num"/>
 								<!-- The two selects do not return the same number of coulmn, so the array of the sql needs to start +1 , due to z_keyrow_name added to the query-->
-								
+
 								<gel:parse var="data_insert_xml_row">
 									<ColumnValue name="z_${column_name_snap_tab.get(num)}">${row[local_sql_num]}</ColumnValue>
 								</gel:parse>
@@ -360,7 +360,7 @@
 								<core:set value="${logDate} - ${logMessage}" var="logMessage"/>
 								<gel:log level="INFO">Relogin done</gel:log>
 
-							</core:if>            
+							</core:if>
 							<!-- Test session - END -->
 
 							<core:catch var="v_xog_exception">
@@ -427,7 +427,7 @@
 							</core:choose>
 
 							<core:set value="${count_data+1}" var="count_data"/>
-						</core:forEach>	
+						</core:forEach>
 
 					</core:forEach>
 				</core:when>
@@ -439,4 +439,3 @@
 		</gel:script>
 	</scriptText>
 </customScript>
-
