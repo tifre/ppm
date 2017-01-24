@@ -1,0 +1,534 @@
+<customScript languageCode="gel">
+	<scriptText>
+		<gel:script xmlns:core="jelly:core"
+				xmlns:file="jelly:com.niku.union.gel.FileTagLibrary"
+				xmlns:gel="jelly:com.niku.union.gel.GELTagLibrary"
+				xmlns:obj="http://www.niku.com/xog/Object"
+				xmlns:soap="jelly:com.niku.union.gel.SOAPTagLibrary"
+				xmlns:soapenc="http://schemas.xmlsoap.org/soap/encoding/"
+				xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/"
+				xmlns:sql="jelly:sql"
+				xmlns:util="jelly:util"
+				xmlns:x="jelly:xml"
+				xmlns:xog="http://www.niku.com/xog"
+				xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+
+			<!-- DB access -->
+			<gel:setDataSource dbId="Niku"/>
+
+			<gel:parameter var="debug"/>
+
+
+			<core:set value="${gel_objectInstanceId}" var="myObjectId"/>
+			<core:set value="${gel_processInstanceId}" var="myProcessId"/>
+
+			<gel:log level="INFO">myProcessId ${myProcessId}</gel:log>
+			<gel:log level="INFO">myObjectId ${myObjectId}</gel:log>
+
+
+			<!--######################################################################-->
+			<!-- GET SESSION FOR XOG -->
+			<!--######################################################################-->
+
+			<core:new className="com.niku.union.security.DefaultSecurityIdentifier" var="secId"/>
+			<core:invokeStatic className="com.niku.union.security.UserSessionControllerFactory" method="getInstance" var="userSessionCtrl"/>
+
+			<core:set value="${userSessionCtrl.init('admin', secId)}" var="secId"/>
+			<core:set value="${secId.getSessionId()}" var="thisSessionId"/>
+
+			<core:set value="XOG Session ID: ${thisSessionId}" var="logMessage"/>
+			<gel:formatDate format="yyMMdd HHmmss" stringVar="logDate"/>
+			<core:set value="${logDate} - ${logMessage}" var="logMessage"/>
+			<gel:log level="INFO">${logMessage}</gel:log>
+
+			<core:invokeStatic className="com.niku.union.config.ConfigurationManager" method="getInstance" var="config"/>
+			<core:set value="${config.getProperties()}" var="config"/>
+			<core:set value="${config.getWebServer().getSchedulerUrl()}" var="clarity_url"/>
+
+			<core:set value="Clarity URL from Scheduler URL: ${clarity_url}" var="logMessage"/>
+
+			<core:if test="${clarity_url != ''}">
+				<util:tokenize delim=":" var="urlComponents">${clarity_url}</util:tokenize>
+				<core:set value="${urlComponents.get(0)}://" var="httpMethod"/>
+				<core:set value="${urlComponents.get(1)}" var="servername"/>
+				<util:tokenize delim="/" var="servername">${servername}</util:tokenize>
+				<core:set value="${servername.get(0)}" var="servername"/>
+				<core:set value="${urlComponents.get(2)}" var="portnumber"/>
+				<core:choose>
+					<core:when test="${portnumber eq null}">
+						<core:switch on="${httpMethod}">
+							<core:case value="https://">
+								<core:set var="portnumber">443</core:set>
+							</core:case>
+							<core:default>
+								<core:set var="portnumber">80</core:set>
+							</core:default>
+						</core:switch>
+					</core:when>
+					<core:otherwise>
+						<util:tokenize delim="/" var="portnumber">${portnumber}</util:tokenize>
+						<core:set value="${portnumber.get(0)}" var="portnumber"/>
+					</core:otherwise>
+				</core:choose>
+				<core:set value="${httpMethod}${servername}:${portnumber}/niku/xog" var="clarity_url"/>
+			</core:if>
+			<core:set value="XOG URL: ${clarity_url}" var="logMessage"/>
+			<core:choose>
+				<core:when test="${runningOutsideProcess}">${logMessage}
+					<core:if test="${timestamp_log eq 'YES'}">
+						<gel:formatDate format="dd MMM yy HH:mm:ss.SSS" stringVar="logDate"/>
+						<core:set value="${logDate} - ${logMessage}" var="logMessage"/>
+					</core:if>
+					<gel:log var="logMessageList">${logMessage}</gel:log>
+				</core:when>
+				<core:otherwise>
+					<gel:log>${logMessage}</gel:log>
+				</core:otherwise>
+			</core:choose>
+
+			<!--######################################################################-->
+			<!-- GET SESSION FOR XOG -->
+			<!-- END -->
+			<!--######################################################################-->
+
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<core:set value="http://localhost/niku/xog" var="clarity_url"/>
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+			<!--- ****************************************************** -->
+
+
+
+			<!--######################################################################-->
+
+			<!-- Get tables based on snapshot type -->
+
+
+			<sql:query escapeText="false" var="get_snapshot_tables">
+				<![CDATA[
+							select z_table, z_short_name
+								from Odf_Ca_Z_Snapshot_Tables
+							 where Odf_Parent_Id = ${myObjectId} 
+					]]>
+			</sql:query>
+
+
+			<!-- Create snapshot table if not exist -->
+
+			<gel:log level="INFO">---------------------------------------------------------------</gel:log>
+			<gel:log level="INFO">In step - Update Snapshot objets</gel:log>
+			<gel:log level="INFO">Snapshot has ${get_snapshot_tables.rowCount} tables</gel:log>
+
+
+			<core:choose>
+				<core:when test="${get_snapshot_tables.rowCount gt 0}">
+					<core:forEach trim="true" items="${get_snapshot_tables.rowsByIndex}" var="row">
+
+						<core:set value="${row[0]}" var="z_table_name"/>
+						<core:set value="${row[1]}" var="z_table_name_code"/>
+
+						<sql:query escapeText="false" var="check_if_tables_match">
+							<![CDATA[
+								SELECT Data_Type ,
+									  Lower(Column_Name) Lcolname ,
+									  Upper(Column_Name) Ucolname ,
+									  Data_Length ,
+									  CASE
+										WHEN Data_Type = 'VARCHAR2'
+										THEN 1
+										WHEN Data_Type = 'NUMBER'
+										THEN 1 --2
+										WHEN Data_Type = 'FLOAT'
+										THEN 1 --3
+										WHEN Data_Type = 'DATE'
+										THEN 4
+									  END datatypenum
+									FROM All_Tab_Columns
+									WHERE lower(Table_Name) = lower('${z_table_name}')
+									AND Lower(Column_Name) IN
+									  (SELECT SUBSTR(Lcolname,3,LENGTH(Lcolname))
+									  FROM
+										(SELECT 'z_'
+										  ||Lower(Column_Name) Lcolname
+										FROM All_Tab_Columns
+										WHERE lower(Table_Name)     = lower('${z_table_name}')
+										AND Lower(Column_Name) NOT IN ( 'id', 'code' , 'name', 'page_layout', 'partition_code', 'z_actuals_to_prj', 'created_by', 'last_updated_by', 'created_date', 'last_updated_date' )
+										AND Data_Type NOT          IN ( 'BLOB' )
+										MINUS
+										SELECT Lower(Column_Name)
+										FROM All_Tab_Columns
+										WHERE lower(Table_Name)     = lower('odf_ca_z_${z_table_name_code}')
+										AND Lower(Column_Name) NOT IN ( 'id', 'code' , 'name', 'page_layout', 'partition_code', 'z_actuals_to_prj', 'created_by', 'last_updated_by', 'created_date', 'last_updated_date' )
+										AND Data_Type NOT          IN ( 'BLOB' )
+										)
+									  )
+									]]>
+						</sql:query>
+
+						<core:if test="${debug eq 1}">
+							<gel:log level="INFO">Num of row in check_if_tables_match ${check_if_tables_match.rowCount}</gel:log> 
+							<gel:log level="INFO">
+								<![CDATA[
+								SELECT Data_Type ,
+								  Lower(Column_Name) Lcolname ,
+								  Upper(Column_Name) Ucolname ,
+								  Data_Length ,
+								  CASE
+									WHEN Data_Type = 'VARCHAR2'
+									THEN 1
+									WHEN Data_Type = 'NUMBER'
+									THEN 1 --2
+									WHEN Data_Type = 'FLOAT'
+									THEN 1 --3
+									WHEN Data_Type = 'DATE'
+									THEN 4
+								  END datatypenum
+								FROM All_Tab_Columns
+								WHERE lower(Table_Name) = lower('${z_table_name}')
+								AND Lower(Column_Name) IN
+								  (SELECT SUBSTR(Lcolname,3,LENGTH(Lcolname))
+								  FROM
+									(SELECT 'z_'
+									  ||Lower(Column_Name) Lcolname
+									FROM All_Tab_Columns
+									WHERE lower(Table_Name)     = lower('${z_table_name}')
+									AND Lower(Column_Name) NOT IN ( 'id', 'code' , 'name', 'page_layout', 'partition_code', 'z_actuals_to_prj', 'created_by', 'last_updated_by', 'created_date', 'last_updated_date' )
+									AND Data_Type NOT          IN ( 'BLOB' )
+									MINUS
+									SELECT Lower(Column_Name)
+									FROM All_Tab_Columns
+									WHERE lower(Table_Name)     = lower('odf_ca_z_${z_table_name_code}')
+									AND Lower(Column_Name) NOT IN ( 'id', 'code' , 'name', 'page_layout', 'partition_code', 'z_actuals_to_prj', 'created_by', 'last_updated_by', 'created_date', 'last_updated_date' )
+									AND Data_Type NOT          IN ( 'BLOB' )
+									)
+								  )							
+									]]>
+							</gel:log> 
+						</core:if>
+						<core:choose>
+							<core:when test="${check_if_tables_match.rowCount eq 0}">
+
+								<gel:log level="INFO">Snapshot Odf_Ca_z_${z_table_name_code} tables match - skipping</gel:log>
+
+							</core:when>
+							<core:otherwise>
+
+								<gel:log level="INFO">table Odf_Ca_z_${z_table_name_code} dont match - updating</gel:log>
+								<sql:query escapeText="true" var="table_info">
+									SELECT Data_Type ,
+									  substr(Lower(Column_Name),0,18) Lcolname ,
+									  Upper(Column_Name) Ucolname ,
+									  Data_Length ,
+									  CASE
+										WHEN Data_Type = 'VARCHAR2'
+										THEN 1
+										WHEN Data_Type = 'NUMBER'
+										THEN 1 --2
+										WHEN Data_Type = 'FLOAT'
+										THEN 1 --3
+										WHEN Data_Type = 'DATE'
+										THEN 4
+									  END datatypenum
+									FROM All_Tab_Columns
+									WHERE lower(Table_Name) = lower('${z_table_name}')
+									AND Lower(Column_Name) IN
+									  (SELECT SUBSTR(Lcolname,3,LENGTH(Lcolname))
+									  FROM
+										(SELECT 'z_'
+										  ||Lower(Column_Name) Lcolname
+										FROM All_Tab_Columns
+										WHERE lower(Table_Name)     = lower('${z_table_name}')
+										AND Lower(Column_Name) NOT IN ( 'id', 'code' , 'name', 'page_layout', 'partition_code', 'z_actuals_to_prj', 'created_by', 'last_updated_by', 'created_date', 'last_updated_date' )
+										AND Data_Type NOT          IN ( 'BLOB' )
+										MINUS
+										SELECT Lower(Column_Name)
+										FROM All_Tab_Columns
+										WHERE lower(Table_Name)     = lower('odf_ca_z_${z_table_name_code}')
+										AND Lower(Column_Name) NOT IN ( 'id', 'code' , 'name', 'page_layout', 'partition_code', 'z_actuals_to_prj', 'created_by', 'last_updated_by', 'created_date', 'last_updated_date' )
+										AND Data_Type NOT          IN ( 'BLOB' )
+										)
+									  )								
+
+
+								</sql:query>
+
+								<gel:parse var="NEW_SUB_SNAP_OBJ">
+									<NikuDataBus xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="../xsd/nikuxog_contentPack.xsd">
+										<Header action="write" externalSource="NIKU" objectType="contentPack" version="8.0"/>
+										<contentPack update="true">
+											<objects>
+												<object code="z_kmd_rep_snap" update="true">
+													<nls description="Snapshot object for reports" languageCode="de" name="KMD Report Snapshot"/>
+													<nls description="Snapshot object for reports" languageCode="en" name="KMD Report Snapshot"/>
+													<nls description="Snapshot object for reports" languageCode="es" name="KMD Report Snapshot"/>
+													<nls description="Snapshot object for reports" languageCode="fr" name="KMD Report Snapshot"/>
+													<nls description="Snapshot object for reports" languageCode="ja" name="KMD Report Snapshot"/>
+													<nls description="Snapshot object for reports" languageCode="nl" name="KMD Report Snapshot"/>
+												</object>
+											</objects>
+										</contentPack>
+									</NikuDataBus>
+								</gel:parse>
+
+								<gel:parse var="NEW_SUB_SNAP_OBJ_CUST_ATTRI">
+									<!-- Sub object -->
+									<object code="z_${z_table_name_code}" update="true" parentObjectCode="z_kmd_rep_snap">
+										<nls description="A sub obejct for ${z_table_name} snaphot" languageCode="de" name="KMD Report Snapshot"/>
+										<nls description="A sub obejct for ${z_table_name} snaphot" languageCode="en" name="KMD Report Snapshot ${z_table_name}"/>
+										<nls description="A sub obejct for ${z_table_name} snaphot" languageCode="es" name="KMD Report Snapshot ${z_table_name}"/>
+										<nls description="A sub obejct for ${z_table_name} snaphot" languageCode="fr" name="KMD Report Snapshot ${z_table_name}"/>
+										<nls description="A sub obejct for ${z_table_name} snaphot" languageCode="ja" name="KMD Report Snapshot ${z_table_name}"/>
+										<nls description="A sub obejct for ${z_table_name} snaphot" languageCode="nl" name="KMD Report Snapshot ${z_table_name}"/>
+									</object>
+									<!-- Sub object -->
+								</gel:parse>
+
+
+								<core:forEach trim="true" items="${table_info.rowsByIndex}" var="row">
+									<core:set value="${row[0]}" var="data_type"/>
+									<core:set value="${row[1]}" var="lcolname"/>
+									<core:set value="${row[2]}" var="ucolname"/>
+									<core:set value="${row[3]}" var="data_length"/>
+									<core:set value="${row[4]}" var="datatypenum"/>
+
+									<gel:log>Adding ${lcolname} to snapshot (data_type: ${data_type} data_length: ${data_length} </gel:log>
+
+									<core:if test="${debug eq 1}">
+										<gel:log>Parse of attribute</gel:log>
+										<gel:log>Data in table_info: ${data_type} ${lcolname} ${ucolname} ${data_length} ${datatypenum} </gel:log>
+									</core:if>
+
+									<core:choose>
+										<core:when test="${datatypenum eq 1}">
+											<gel:parse var="attribute">
+
+
+												<customAttribute active="true"
+																					code="z_${lcolname}" column="z_${ucolname}"
+																					constant="false" currencyConnected="false"
+																					custom="true" dataSize="${data_length}"
+																					dataType="string" editable="true"
+																					multiValued="false"
+																					partitionCode="NIKU.ROOT"
+																					partitionMode="PARTITION_AND_ANSTRS_DESDNTS"
+																					presenceRequired="false" private="false"
+																					required="false" unique="false" virtual="false">
+													<nls languageCode="de" name="${lcolname}"/>
+													<nls languageCode="en" name="${lcolname}"/>
+													<nls languageCode="es" name="${lcolname}"/>
+													<nls languageCode="fr" name="${lcolname}"/>
+													<nls languageCode="ja" name="${lcolname}"/>
+													<nls languageCode="nl" name="${lcolname}"/>
+												</customAttribute>
+											</gel:parse>
+
+											<gel:set asString="true" select="$attribute" var="string"/>
+
+											<core:if test="${debug eq 1}">
+												<gel:log>Parse of attribute</gel:log>
+												<gel:log>XOG responce: ${string} </gel:log>
+											</core:if>
+
+
+										</core:when>
+
+										<core:when test="${datatypenum eq 2}">
+
+											<gel:parse var="attribute">
+
+												<customAttribute
+																 active="true" code="z_${lcolname}" column="z_${ucolname}"
+																 constant="false" currencyConnected="false" custom="true"
+																 dataType="number" editable="true" maxValue="${data_length}" minValue="0"
+																 multiValued="false" partitionCode="NIKU.ROOT"
+																 partitionMode="PARTITION_ONLY"
+																 private="false" required="false" scale="0"
+																 unique="false" virtual="false">
+													<nls description="${lcolname}" languageCode="de" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="en" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="es" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="fr" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="ja" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="nl" name="${lcolname}"/>
+												</customAttribute>
+
+											</gel:parse>
+
+										</core:when>
+
+										<core:when test="${datatypenum eq 3}">
+
+											<gel:parse var="attribute">
+
+												<customAttribute
+																 active="true" code="z_${lcolname}" column="z_${ucolname}"
+																 constant="false" currencyConnected="false" custom="true"
+																 dataType="number" editable="true" maxValue="${data_length}" minValue="0"
+																 multiValued="false"
+																 partitionMode="PARTITION_ONLY"  partitionCode="NIKU.ROOT"
+																 private="false" required="false" scale="0"
+																 unique="false" virtual="false">
+													<nls description="${lcolname}" languageCode="de" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="en" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="es" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="fr" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="ja" name="${lcolname}"/>
+													<nls description="${lcolname}" languageCode="nl" name="${lcolname}"/>
+												</customAttribute>
+
+											</gel:parse>
+
+										</core:when>
+
+										<core:when test="${datatypenum eq 4}">
+
+											<gel:parse var="attribute">
+
+												<customAttribute active="true" code="z_${lcolname}"
+																	 column="z_${ucolname}" constant="false"
+																	 currencyConnected="false" custom="true"
+																	 dataSize="20" dataType="date"
+																	 editable="true" multiValued="false"
+																	 partitionCode="NIKU.ROOT"
+																	 partitionMode="PARTITION_AND_ANSTRS_DESDNTS"
+																	 presenceRequired="true" private="false"
+																	 required="false" unique="false" virtual="false">
+													<nls languageCode="de" name="${lcolname}"/>
+													<nls languageCode="en" name="${lcolname}"/>
+													<nls languageCode="es" name="${lcolname}"/>
+													<nls languageCode="fr" name="${lcolname}"/>
+													<nls languageCode="ja" name="${lcolname}"/>
+													<nls languageCode="nl" name=""/>
+												</customAttribute>
+
+											</gel:parse>
+
+										</core:when>
+									</core:choose>
+
+									<gel:set insert="true" select="$NEW_SUB_SNAP_OBJ_CUST_ATTRI//object" value="${attribute}"/>
+
+								</core:forEach>
+
+								<gel:set insert="true" select="$NEW_SUB_SNAP_OBJ//object" value="${NEW_SUB_SNAP_OBJ_CUST_ATTRI}"/>
+
+								<gel:set asString="true" select="$NEW_SUB_SNAP_OBJ" var="string"/>
+								<core:if test="${debug eq 1}">
+									<gel:log>Debug db1: ${string} </gel:log>
+
+
+									<file:writeFile fileName="C:\${gel_objectInstanceId}_${z_table_name}.txt" delimiter="||" embedded="false">
+										<file:comment value="Project ID || First Name || Last Name || ..... || Additional Comments"/>
+										<file:line>
+											<file:column value="${string}"/>
+										</file:line>										
+									</file:writeFile>
+
+
+
+								</core:if>
+
+								<core:catch var="v_xog_exception">
+									<soap:invoke endpoint="${clarity_url}" var="xogresponse">
+										<soap:message>
+											<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:xog="http://www.niku.com/xog">
+												<soapenv:Header>
+													<xog:Auth>
+														<xog:SessionID>${thisSessionId}</xog:SessionID>
+													</xog:Auth>
+												</soapenv:Header>
+												<soapenv:Body>
+													<gel:include select="$NEW_SUB_SNAP_OBJ"/>
+												</soapenv:Body>
+											</soapenv:Envelope>
+										</soap:message>
+									</soap:invoke>
+
+
+									<gel:set asString="true" select="$xogresponse" var="gel_parse_variable_str"/>
+									<core:if test="${debug eq 1}">
+
+										<gel:log>Debug db2: ${gel_parse_variable_str} </gel:log>
+									</core:if>
+
+								</core:catch>
+								<core:choose>
+									<core:when test="${v_xog_exception != null}">
+										<gel:log category="XOG Failed" level="ERROR">XOG failed: ${v_xog_exception}</gel:log>
+									</core:when>
+									<core:otherwise>
+
+										<gel:set select="$xogresponse/soapenv:Envelope/soapenv:Body/XOGOutput" var="writeOutputRoot"/>
+										<gel:set asString="true" select="$writeOutputRoot/Status/@state" var="XOGoutcome"/>
+										<gel:set asString="true" select="$writeOutputRoot/Records/Record" var="XOGoutputrecords"/>
+										<gel:set asString="true" select="$writeOutputRoot/Statistics/@totalNumberOfRecords" var="XOGtotalrecords"/>
+										<gel:set asString="true" select="$writeOutputRoot/Statistics/@insertedRecords" var="XOGinsertedrecords"/>
+										<gel:set asString="true" select="$writeOutputRoot/Severity" var="XOGERROR"/>
+										<gel:set asString="true" select="$writeOutputRoot/Description" var="XOGERRORDESC"/>
+										<gel:set asString="true" select="$writeOutputRoot/Statistics/@updatedRecords" var="XOGupdatedrecords"/>
+										<gel:set asString="true" select="$writeOutputRoot/Statistics/@failureRecords" var="XOGfailurerecords"/>
+										<gel:set asString="true" select="$writeOutputRoot/Records/Record/ErrorInformation/Description" var="XOGErrorDescRec"/>
+										<gel:set asString="true" select="$writeOutputRoot/Records/Record/ErrorInformation/Exception" var="XOGExceptionRec"/>
+										<gel:set asString="true" select="$writeOutputRoot/ErrorInformation/Description" var="XOGErrorDesc"/>
+										<gel:set asString="true" select="$writeOutputRoot/ErrorInformation/Exception" var="XOGException"/>
+										<gel:log level="INFO">Log record inserted (XOG completed  [Total ${XOGtotalrecords}, Inserted ${XOGinsertedrecords}, Updated ${XOGupdatedrecords}, Failed ${XOGfailurerecords}])</gel:log>
+										<core:if test="${XOGErrorDesc != null}">
+											<gel:log category="XOG" level="INFO">Error Information:${XOGErrorDesc}</gel:log>
+										</core:if>
+										<core:if test="${XOGException != null}">
+											<gel:log category="XOG" level="INFO">Error Information:${XOGException}</gel:log>
+										</core:if>
+										<core:if test="${XOGErrorDescRec != null}">
+											<gel:log category="XOG" level="INFO">Error Information:${XOGErrorDescRec}</gel:log>
+										</core:if>
+										<core:if test="${XOGExceptionRec != null}">
+											<gel:log category="XOG" level="INFO">Error Information:${XOGExceptionRec}</gel:log>
+										</core:if>
+										<core:if test="${XOGERRORDESC != null}">
+											<gel:log category="XOG" level="INFO">Error Information:${XOGERRORDESC} State: ${XOGERROR}</gel:log>
+											<gel:log category="XOG" level="INFO">XOG write: ${gel_parse_variable_str}</gel:log>
+										</core:if>
+
+									</core:otherwise>
+								</core:choose>
+
+							</core:otherwise>
+						</core:choose>
+
+					</core:forEach>
+				</core:when>
+			</core:choose>
+
+			<gel:log level="INFO">Step - Create Snapshot objects</gel:log>
+			<gel:log level="INFO">-----------------------------End----------------------------------</gel:log>
+
+			<!-- END -->
+			<!--######################################################################-->
+
+		</gel:script>
+	</scriptText>
+</customScript>
